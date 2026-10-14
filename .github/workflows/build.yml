@@ -111,8 +111,14 @@ jobs:
             echo "=============================================="
             echo "Verificando $(basename "$apk")"
             echo "=============================================="
-            # La API no lleva el asset del bootstrap: se le indica que lo ignore.
-            PTYBOX_SKIP_BOOTSTRAP_CHECK=1 ./scripts/verify_apk.sh "$apk" "com.ptybox.api"
+            # La API no lleva el asset del bootstrap, no define RUN_COMMAND
+            # (lo define la app) y su provider es com.ptybox.sharedfiles con
+            # sharedUserId=com.ptybox compartido con la app.
+            PTYBOX_SKIP_BOOTSTRAP_CHECK=1 \
+            PTYBOX_SKIP_PERMISSION_CHECK=1 \
+            PTYBOX_EXPECTED_SHAREDUID="com.ptybox" \
+            PTYBOX_EXPECTED_PROVIDERS="com.ptybox.sharedfiles" \
+              ./scripts/verify_apk.sh "$apk" "com.ptybox.api"
           done
 
       - name: sha256sums
