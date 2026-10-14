@@ -4,7 +4,10 @@ buildscript {
         mavenCentral()
     }
     dependencies {
-        classpath "com.android.tools.build:gradle:8.7.3"
+        // Alineado con ptybox-app (AGP 8.13.2). Necesario porque este repositorio
+        // ahora incluye terminal-emulator y termux-shared, que usan
+        // externalNativeBuild y necesitan un AGP capaz de manejar NDK 29.
+        classpath "com.android.tools.build:gradle:8.13.2"
     }
 }
 

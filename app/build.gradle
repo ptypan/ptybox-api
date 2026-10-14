@@ -1,33 +1,73 @@
 apply plugin: 'com.android.application'
 
+// =============================================================================
+// PtyBox - firma. La API y la app comparten sharedUserId=com.ptybox, asi que
+// Android exige que ambas APKs esten firmadas con la MISMA clave. Se lee de
+// 'keystore.properties' (gitignored) o de variables de entorno, igual que en
+// ptybox-app. Ver scripts/gen_keystore.sh.
+// =============================================================================
+def keystorePropsFile = rootProject.file("keystore.properties")
+def keystoreProps = new Properties()
+def keystorePropsLoaded = false
+if (keystorePropsFile.exists()) {
+    keystoreProps.load(new FileInputStream(keystorePropsFile))
+    keystorePropsLoaded = true
+}
+def propOrEnv = { String key, String env ->
+    if (keystorePropsLoaded && keystoreProps.containsKey(key)) return keystoreProps.getProperty(key)
+    return System.getenv(env)
+}
+def ksStoreFile = propOrEnv("storeFile", "PTYBOX_STORE_FILE")
+def ksStorePass = propOrEnv("storePassword", "PTYBOX_STORE_PASSWORD")
+def ksKeyAlias = propOrEnv("keyAlias", "PTYBOX_KEY_ALIAS")
+def ksKeyPass = propOrEnv("keyPassword", "PTYBOX_KEY_PASSWORD")
+def hasReleaseSigning = ksStoreFile != null && ksStorePass != null && ksKeyAlias != null && ksKeyPass != null
+
+if (!hasReleaseSigning) {
+    logger.lifecycle("[PtyBox] Sin keystore configurado: se usara la clave de depuracion. " +
+        "La API NO podra compartir sharedUserId con la app firmada.")
+}
+
 android {
-    namespace "com.termux.api"
+    namespace "com.ptybox.api"
 
     compileSdk project.properties.compileSdkVersion.toInteger()
     def appVersionName = System.getenv("TERMUX_API_APP__BUILD__APP_VERSION_NAME") ?: ""
     def apkVersionTag = System.getenv("TERMUX_API_APP__BUILD__APK_VERSION_TAG") ?: ""
 
     defaultConfig {
-        applicationId "com.termux.api"
+        applicationId "com.ptybox.api"
         minSdk project.properties.minSdkVersion.toInteger()
         targetSdk project.properties.targetSdkVersion.toInteger()
-        versionCode 1002
-        versionName "0.53.0"
+        versionCode 1003
+        versionName "0.53.0-ptybox1"
 
         if (appVersionName) versionName = appVersionName
         validateVersionName(versionName)
 
-        manifestPlaceholders.TERMUX_PACKAGE_NAME = "com.termux"
-        manifestPlaceholders.TERMUX_APP_NAME = "Termux"
-        manifestPlaceholders.TERMUX_API_APP_NAME = "Termux:API"
+        manifestPlaceholders.TERMUX_PACKAGE_NAME = "com.ptybox"
+        manifestPlaceholders.TERMUX_APP_NAME = "PtyBox"
+        manifestPlaceholders.TERMUX_API_APP_NAME = "PtyBox:API"
     }
 
     signingConfigs {
-        debug {
-            storeFile file('testkey_untrusted.jks')
-            keyAlias 'alias'
-            storePassword 'xrj45yWGLbsO7W0v'
-            keyPassword 'xrj45yWGLbsO7W0v'
+        // Upstream firma con 'testkey_untrusted.jks', clave PUBLICA. No la
+        // usamos: app y API deben ir firmadas con la MISMA clave propia para
+        // compartir sharedUserId=com.ptybox.
+        // Ver scripts/gen_keystore.sh en el repositorio ptybox-app.
+        if (hasReleaseSigning) {
+            release {
+                storeFile rootProject.file(ksStoreFile)
+                storePassword ksStorePass
+                keyAlias ksKeyAlias
+                keyPassword ksKeyPass
+            }
+            debug {
+                storeFile rootProject.file(ksStoreFile)
+                storePassword ksStorePass
+                keyAlias ksKeyAlias
+                keyPassword ksKeyPass
+            }
         }
     }
 
@@ -36,10 +76,11 @@ android {
             minifyEnabled true
             shrinkResources false // Reproducible builds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
+            if (hasReleaseSigning) signingConfig signingConfigs.release
         }
 
         debug {
-            signingConfig signingConfigs.debug
+            if (hasReleaseSigning) signingConfig signingConfigs.debug
         }
     }
 
@@ -53,8 +94,8 @@ android {
 
     applicationVariants.all { variant ->
         variant.outputs.all { output ->
-            outputFileName = new File("termux-api-app_" +
-                    (apkVersionTag ? apkVersionTag : "v" + versionName + "+" + variant.buildType.name) + ".apk")
+            outputFileName = new File("ptybox-api_" +
+                    (apkVersionTag ? apkVersionTag : "v" + versionName + "-" + variant.buildType.name) + ".apk")
         }
     }
 
@@ -73,11 +114,10 @@ dependencies {
     implementation "androidx.media:media:1.7.0"
     implementation "androidx.preference:preference:1.2.1"
 
-    implementation "com.termux.termux-app:termux-shared:8aca6dbbf4"
-    // Use if below libraries are published locally by termux-app with `./gradlew publishReleasePublicationToMavenLocal` and used with `mavenLocal()`.
-    // If updates are done, republish there and sync project with gradle files here
-    // https://github.com/termux/termux-app/wiki/Termux-Libraries
-    //implementation "com.termux:termux-shared:0.118.0"
+    // Modulo embebido (ver settings.gradle): garantiza que la API compila
+    // contra el MISMO TermuxConstants que la app, con TERMUX_PACKAGE_NAME ya
+    // cambiado a com.ptybox.
+    implementation project(":termux-shared")
 
     implementation "com.google.guava:listenablefuture:9999.0-empty-to-avoid-conflict-with-guava"
 }

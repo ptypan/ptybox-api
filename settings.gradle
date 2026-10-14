@@ -1,1 +1,22 @@
+// =============================================================================
+// PtyBox: el modulo termux-shared va DENTRO de este repositorio a proposito.
+//
+// Upstream lo consume desde jitpack ("com.termux.termux-app:termux-shared:<sha>").
+// Para PtyBox eso seria un problema: TermuxConstants define TERMUX_PACKAGE_NAME,
+// y si la app y la API compilaran contra copias distintas de esa clase, la API
+// enviaria intents a com.termux mientras la app escucha en com.ptybox. Es
+// exactamente el modo de fallo que destruye el aislamiento que queremos.
+//
+// Con el modulo embebido, ambas APKs se compilan SIEMPRE contra el mismo
+// TermuxConstants. scripts/sync_termux_shared.sh lo revisa antes de compilar.
+//
+// Sincronizar tras cada cambio en ptybox-app/termux-shared:
+//     ./scripts/sync_termux_shared.sh --copy
+// =============================================================================
 include ':app'
+include ':termux-shared'
+// termux-shared depende de :terminal-view, que a su vez depende de
+// :terminal-emulator. Se embebiden los tres por el mismo motivo que
+// termux-shared: que la API compile siempre contra el mismo TermuxConstants.
+include ':terminal-view'
+include ':terminal-emulator'

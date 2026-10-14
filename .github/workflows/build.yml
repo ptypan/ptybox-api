@@ -1,0 +1,133 @@
+# =============================================================================
+# PtyBox - build.yml (PtyBox:API, com.ptybox.api)
+#
+# La API comparte sharedUserId=com.ptybox con la app principal, asi que Android
+# exige que AMBAS APKs esten firmadas con la misma clave. Los secrets son los
+# mismos que en ptybox-app: si usas una clave distinta, Android rechazara la
+# instalacion con INSTALL_FAILED_SHARED_USER_INCOMPATIBLE.
+#
+# Sustituye a los workflows de upstream (movidos a _upstream_disabled/), que
+# publicaban "termux-api-app_*" con la testkey de upstream.
+# =============================================================================
+name: Build API
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+  workflow_dispatch:
+
+concurrency:
+  group: ptybox-api-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build PtyBox:API
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Clonar el repositorio
+        uses: actions/checkout@v6
+
+      - name: Configurar Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Cache de Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ptybox-api-gradle-${{ runner.os }}-${{ hashFiles('**/build.gradle', 'gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: ptybox-api-gradle-${{ runner.os }}-
+
+      - name: Comprobar invariantes y aislamiento
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./scripts/check_invariants.sh
+          ./scripts/check_no_termux_leaks.sh
+          # Verifica que el termux-shared embebido apunta a com.ptybox. Si este
+          # repo se compila sin el repositorio hermano, el script lo avisa.
+          ./scripts/sync_termux_shared.sh --check
+
+      - name: Decodificar el keystore de PtyBox
+        shell: bash
+        env:
+          KEYSTORE_B64: ${{ secrets.PTYBOX_KEYSTORE_B64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KEYSTORE_B64}" ]; then
+            echo "::warning::PTYBOX_KEYSTORE_B64 no configurado: se usara la clave de depuracion."
+            exit 0
+          fi
+          echo "${KEYSTORE_B64}" | base64 -d > ptybox-release.jks
+          chmod 600 ptybox-release.jks
+          {
+            echo "storeFile=ptybox-release.jks"
+            echo "storePassword=${{ secrets.PTYBOX_STORE_PASSWORD }}"
+            echo "keyAlias=${{ secrets.PTYBOX_KEY_ALIAS }}"
+            echo "keyPassword=${{ secrets.PTYBOX_KEY_PASSWORD }}"
+          } > keystore.properties
+
+      - name: Compilar
+        shell: bash
+        run: |
+          set -euo pipefail
+          export TERMUX_API_APP__BUILD__APP_VERSION_NAME="$(grep -m1 -oP 'versionName "\K[^"]+' app/build.gradle)"
+          ./gradlew --no-daemon assembleDebug
+
+      - name: Recolectar APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          shopt -s nullglob
+          found=0
+          for f in app/build/outputs/apk/debug/*.apk; do
+            cp "$f" "dist/ptybox-api_$(basename "$f")"
+            found=$((found+1))
+          done
+          if [ "${found}" -eq 0 ]; then
+            echo "::error::No se encontro ningun APK"
+            ls -la app/build/outputs/apk/debug || true
+            exit 1
+          fi
+          ls -lh dist/
+
+      - name: Verificar aislamiento respecto a Termux
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          for apk in dist/*.apk; do
+            echo "=============================================="
+            echo "Verificando $(basename "$apk")"
+            echo "=============================================="
+            # La API no lleva el asset del bootstrap: se le indica que lo ignore.
+            PTYBOX_SKIP_BOOTSTRAP_CHECK=1 ./scripts/verify_apk.sh "$apk" "com.ptybox.api"
+          done
+
+      - name: sha256sums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum *.apk > ptybox-api_sha256sums.txt
+          cat ptybox-api_sha256sums.txt
+
+      - name: Subir artefactos
+        uses: actions/upload-artifact@v6
+        with:
+          name: ptybox-api-${{ github.sha }}
+          path: |
+            dist/*.apk
+            dist/ptybox-api_sha256sums.txt
+          retention-days: 30
