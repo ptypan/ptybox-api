@@ -14,6 +14,7 @@ name: Build API
 on:
   push:
     branches: [ master ]
+    tags: [ 'v*' ]
   pull_request:
     branches: [ master ]
   workflow_dispatch:
@@ -27,7 +28,8 @@ jobs:
     name: Build PtyBox:API
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      # write: el paso "Publicar en el release" (tags v*) necesita crear releases.
+      contents: write
 
     steps:
       - name: Clonar el repositorio
@@ -137,3 +139,10 @@ jobs:
             dist/*.apk
             dist/ptybox-api_sha256sums.txt
           retention-days: 30
+
+      - name: Publicar en el release (solo tags)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          fail_on_unmatched_files: true
