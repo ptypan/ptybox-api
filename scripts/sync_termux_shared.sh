@@ -1,4 +1,4 @@
-#!/data/data/com.termux/files/usr/bin/bash
+#!/usr/bin/env bash
 # =============================================================================
 # PtyBox - sync_termux_shared.sh [--copy]
 #
